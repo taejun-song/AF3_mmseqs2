@@ -10,23 +10,23 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "alphafold3"
-version = "3.0.0"
+version = "3.0.1"
 requires-python = ">=3.11"
 readme = "README.md"
 license = {file = "LICENSE"}
 dependencies = [
     "absl-py",
-    "chex",
     "dm-haiku==0.0.13",
     "dm-tree",
     "jax==0.4.34",
     "jax[cuda12]==0.4.34",
     "jax-triton==0.2.0",
-    "jaxtyping",
+    "jaxtyping==0.2.34",
     "numpy",
     "rdkit==2024.3.5",
     "triton==3.1.0",
     "tqdm",
+    "typeguard==2.13.3",
     "zstandard",
 ]
 
