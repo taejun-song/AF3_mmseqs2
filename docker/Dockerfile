@@ -19,7 +19,8 @@ RUN python3 -m venv /alphafold3_venv
 ENV PATH="/mmseqs/bin:/hmmer/bin:/alphafold3_venv/bin:$PATH"
 RUN pip3 install --no-cache-dir --upgrade pip
 
-RUN mkdir -p /mmseqs_build /mmseqs/bin && \
+# Install MMseqs2 for fast MSA generation
+RUN mkdir -p /mmseqs_build /mmseqs/bin ; \
     cd /mmseqs_build && \
     wget https://github.com/soedinglab/MMseqs2/releases/download/15-6f452/mmseqs-linux-avx2.tar.gz && \
     tar xzf mmseqs-linux-avx2.tar.gz && \
@@ -27,27 +28,34 @@ RUN mkdir -p /mmseqs_build /mmseqs/bin && \
     chmod +x /mmseqs/bin/mmseqs && \
     rm -rf /mmseqs_build
 
-RUN mkdir /hmmer_build /hmmer && \
-    wget http://eddylab.org/software/hmmer/hmmer-3.4.tar.gz --directory-prefix /hmmer_build && \
+# Download, check hash, and extract the HMMER source code.
+RUN mkdir /hmmer_build /hmmer ; \
+    wget http://eddylab.org/software/hmmer/hmmer-3.4.tar.gz --directory-prefix /hmmer_build ; \
     (cd /hmmer_build && echo "ca70d94fd0cf271bd7063423aabb116d42de533117343a9b27a65c17ff06fbf3 hmmer-3.4.tar.gz" | sha256sum --check) && \
     (cd /hmmer_build && tar zxf hmmer-3.4.tar.gz && rm hmmer-3.4.tar.gz)
 
+# Apply the --seq_limit patch to HMMER.
 COPY docker/jackhmmer_seq_limit.patch /hmmer_build/
 RUN (cd /hmmer_build && patch -p0 < jackhmmer_seq_limit.patch)
 
-RUN (cd /hmmer_build/hmmer-3.4 && ./configure --prefix /hmmer) && \
-    (cd /hmmer_build/hmmer-3.4 && make -j) && \
-    (cd /hmmer_build/hmmer-3.4 && make install) && \
-    (cd /hmmer_build/hmmer-3.4/easel && make install) && \
+# Build HMMER.
+RUN (cd /hmmer_build/hmmer-3.4 && ./configure --prefix /hmmer) ; \
+    (cd /hmmer_build/hmmer-3.4 && make -j) ; \
+    (cd /hmmer_build/hmmer-3.4 && make install) ; \
+    (cd /hmmer_build/hmmer-3.4/easel && make install) ; \
     rm -R /hmmer_build
 
+# Copy the AlphaFold 3 source code from the local machine to the container and
+# set the working directory to there.
 COPY . /app/alphafold
 WORKDIR /app/alphafold
 
+# Install setuptools (removed in Python 3.12) which some libraries still need.
+# Then install the Python dependencies of AlphaFold 3.
 RUN pip3 install --no-cache-dir setuptools \
     && pip3 install --no-cache-dir -r dev-requirements.txt \
     && pip3 install --no-cache-dir --no-deps .
-
+# Build chemical components database (this binary was installed by pip).
 RUN build_data
 
 ENV XLA_FLAGS="--xla_gpu_enable_triton_gemm=false"
