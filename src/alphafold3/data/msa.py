@@ -161,6 +161,7 @@ def get_msa_tool(config: Union[msa_config.MMseqs2Config, msa_config.JackhmmerCon
         e_value=config.e_value,
         max_sequences=config.max_sequences,
         sensitivity=config.sensitivity,
+        gpu_devices=config.gpu_devices,
     )
   elif isinstance(config, msa_config.JackhmmerConfig):
     return jackhmmer.Jackhmmer(

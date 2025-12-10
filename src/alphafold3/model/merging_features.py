@@ -83,6 +83,12 @@ def merge_paired_and_unpaired_msa(example: BatchDict) -> BatchDict:
     if feature_name in example and feature_name + '_all_seq' in example:
       feat = example[feature_name]
       feat_all_seq = example[feature_name + '_all_seq']
+      print(f'[DEBUG] merging {feature_name}: feat_all_seq.shape={feat_all_seq.shape}, feat.shape={feat.shape}')
+      if feat_all_seq.shape[1] == 0 and feat.shape[1] > 0:
+        print(f'[DEBUG] Empty paired MSA detected, creating zero-padded placeholder')
+        feat_all_seq = np.zeros((feat_all_seq.shape[0], feat.shape[1]), dtype=feat_all_seq.dtype)
+      elif feat_all_seq.shape[1] != feat.shape[1] and feat_all_seq.shape[1] > 0:
+        print(f'[WARN] Shape mismatch: feat_all_seq dim1={feat_all_seq.shape[1]}, feat dim1={feat.shape[1]}')
       merged_feat = np.concatenate([feat_all_seq, feat], axis=0)
       new_example[feature_name] = merged_feat
 

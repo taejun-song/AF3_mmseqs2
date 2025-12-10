@@ -58,6 +58,7 @@ class MMseqs2(msa_tool.MsaTool):
         self.sensitivity = sensitivity
         self.use_gpu = gpu_devices is not None and len(gpu_devices) > 0
         self.gpu_devices = gpu_devices
+        logging.info(f"[DEBUG] MMseqs2 init: gpu_devices={gpu_devices}, use_gpu={self.use_gpu}")
 
         # 检查数据库文件是否存在
         if not os.path.exists(self.database_path):
@@ -85,7 +86,7 @@ class MMseqs2(msa_tool.MsaTool):
                 'createdb',
                 self.database_path,
                 self.base_db,
-                '--dbtype', '1',  # 1表示氨基酸序列
+                '--dbtype', '1',  # 1 for amino acid sequence
                 '--compressed', '0'
             ]
             try:
@@ -97,6 +98,7 @@ class MMseqs2(msa_tool.MsaTool):
                 raise RuntimeError(f"Failed to create base database: {e}")
 
         # 如果启用了GPU，开始创建GPU索引
+        logging.info(f"[DEBUG] Checking GPU setup: use_gpu={self.use_gpu}")
         if self.use_gpu:
             # GPU索引目录
             self.gpu_index_dir = os.path.join(self.mmseqs_dir, f"{db_name}_gpu_index")
@@ -104,10 +106,13 @@ class MMseqs2(msa_tool.MsaTool):
             
             # GPU数据库文件
             self.gpu_db = os.path.join(self.gpu_index_dir, f"{db_name}_gpu")
-            
+            logging.info(f"[DEBUG] GPU db path set to: {self.gpu_db}")
+
             # 检查是否需要创建GPU索引
             required_exts = [".dbtype", ".index", ".lookup", "_h"]
-            if not all(os.path.exists(self.gpu_db + ext) for ext in required_exts):
+            existing_files = {ext: os.path.exists(self.gpu_db + ext) for ext in required_exts}
+            logging.info(f"[DEBUG] GPU index files check: {existing_files}")
+            if not all(existing_files.values()):
                 logging.info(f"Creating GPU-optimized database in {self.gpu_index_dir}")
                 
                 # 1. 创建GPU优化的数据库
@@ -133,9 +138,9 @@ class MMseqs2(msa_tool.MsaTool):
                         tmp_dir,
                         '--remove-tmp-files', '1',
                         '--threads', str(self.n_cpu),
-                        '--comp-bias-corr', '0',  # 对GPU搜索禁用偏差校正
-                        '--search-type', '1',     # 1表示氨基酸搜索
-                        '--mask', '0'             # 对GPU搜索禁用掩码
+                        '--comp-bias-corr', '0',  # Disable bias correction for GPU search
+                        '--search-type', '1',     # 1 for amino acid search
+                        '--mask', '0'             # Disable masking for GPU search
                     ]
                     try:
                         run_with_logging(cmd)
@@ -185,14 +190,14 @@ class MMseqs2(msa_tool.MsaTool):
                 self.binary_path,
                 "search",
                 query_db,
-                gpu_db,  # 使用GPU优化的数据库
+                gpu_db,  # Use GPU-optimized database
                 result_db,
                 tmp_dir,
                 "--threads", str(self.n_cpu),
                 "--max-seqs", str(self.max_sequences),
                 "-s", str(self.sensitivity),
                 "-e", str(self.e_value),
-                "--db-load-mode", "2",
+                "--db-load-mode", "0",
                 "--comp-bias-corr", "0",
                 "--mask", "0",
                 "--exact-kmer-matching", "1",
@@ -209,11 +214,11 @@ class MMseqs2(msa_tool.MsaTool):
                 result_db,
                 result_m8,
                 "--format-output", "query,target,pident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits",
-                "--db-load-mode", "2"
+                "--db-load-mode", "0",
             ]
             run_with_logging(cmd, env=env)
             
-            return self._process_search_results(result_m8, target_sequence)
+            return self._process_search_results(result_db=result_db, target_sequence=target_sequence, query_db_path=query_db, tmp_dir=tmp_dir)
             
         finally:
             # 恢复原始环境变量
@@ -224,20 +229,16 @@ class MMseqs2(msa_tool.MsaTool):
 
     def _process_search_results(
         self,
-        result_m8: str,
+        result_db: str,
         target_sequence: str,
         query_db_path: str,
         tmp_dir: str,
     ) -> msa_tool.MsaToolResult:
         """Processes MMseqs2 search results from M8 to A3M format."""
         # Check if search produced results
-        if not os.path.exists(result_m8) or os.path.getsize(result_m8) == 0:
-            logging.error(f"No search results found in {result_m8}")
-            return msa_tool.MsaToolResult(
-                a3m="",
-                target_sequence=target_sequence,
-                e_value=self.e_value
-            )
+        if not os.path.exists(result_db) or os.path.getsize(result_db) == 0:
+            logging.error(f"No search results found in {result_db}")
+            return msa_tool.MsaToolResult(a3m="", target_sequence=target_sequence, e_value=self.e_value)
 
         result_a3m_path = os.path.join(tmp_dir, "result.a3m")
         # In result2msa, the third argument is the target_db, which is self.base_db for CPU search
@@ -249,9 +250,10 @@ class MMseqs2(msa_tool.MsaTool):
             "result2msa",
             query_db_path, # Path to the query database
             self.base_db,   # Path to the target database (used for generating M8)
-            result_m8,     # Path to the M8 file from convertalis
+            result_db,
             result_a3m_path,
-            "--db-load-mode", "2"
+            "--db-load-mode", "0",
+            "--msa-format-mode", "6"
         ]
         try:
             run_with_logging(cmd)
@@ -259,13 +261,13 @@ class MMseqs2(msa_tool.MsaTool):
                 a3m_content = f.read()
             # Per prompt, only a3m content for success.
             # target_sequence and e_value are added for specific error cases.
-            return msa_tool.MsaToolResult(a3m=a3m_content)
+            return msa_tool.MsaToolResult(a3m=a3m_content, target_sequence=target_sequence, e_value=self.e_value)
         except subprocess.CalledProcessError as e:
             logging.error(f"MMseqs2 result2msa failed: {e}")
-            return msa_tool.MsaToolResult(a3m="")
+            return msa_tool.MsaToolResult(a3m="", target_sequence=target_sequence, e_value=self.e_value)
         except IOError as e:
             logging.error(f"Failed to read A3M file {result_a3m_path}: {e}")
-            return msa_tool.MsaToolResult(a3m="")
+            return msa_tool.MsaToolResult(a3m="", target_sequence=target_sequence, e_value=self.e_value)
 
     def _cpu_search(
         self, 
@@ -294,14 +296,14 @@ class MMseqs2(msa_tool.MsaTool):
             "-e", str(self.e_value),
             "--max-seqs", str(self.max_sequences),
             "-s", str(self.sensitivity),
-            "--db-load-mode", "2"
+            "--db-load-mode", "0",
         ]
         try:
             run_with_logging(cmd)
-        except subprocess.CalledProcessError: # Errors in search itself
-            logging.error("CPU search failed")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"CPU search failed for {self.base_db}: {e.stderr if e.stderr else e}")
             # Return MsaToolResult with only a3m="" as per convention in existing code for search failure
-            return msa_tool.MsaToolResult(a3m="")
+            return msa_tool.MsaToolResult(a3m="", target_sequence=target_sequence, e_value=self.e_value)
 
         # Convert raw search results to m8 format
         # result_m8 is the path where the M8 file will be written
@@ -316,8 +318,8 @@ class MMseqs2(msa_tool.MsaTool):
         ]
         try:
             run_with_logging(cmd)
-        except subprocess.CalledProcessError: # Errors in M8 conversion
-            logging.error("Failed to convert results to m8 format")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Failed to convert results to m8 format: {e.stderr if e.stderr else e}")
             return msa_tool.MsaToolResult(
                 a3m="",
                 target_sequence=target_sequence, # As per existing code for this error
@@ -326,20 +328,20 @@ class MMseqs2(msa_tool.MsaTool):
 
         # Process the M8 file to A3M
         return self._process_search_results(
-            result_m8=result_m8,
+            result_db=result_db,
             target_sequence=target_sequence,
             query_db_path=query_db, # query_db is the path for the query database
             tmp_dir=tmp_dir
         )
 
     def query(self, target_sequence: str) -> msa_tool.MsaToolResult:
-        """使用MMseqs2搜索序列数据库。
+        """Search sequence database using MMseqs2.
 
         Args:
-            target_sequence: 目标序列。
+            target_sequence: Target sequence.
 
         Returns:
-            包含比对结果的MsaToolResult对象。
+            MsaToolResult object containing alignment results.
         """
         logging.info('Query sequence: %s', target_sequence)
         
@@ -347,11 +349,11 @@ class MMseqs2(msa_tool.MsaTool):
             query_path = os.path.join(tmp_dir, "query.fasta")
             result_m8 = os.path.join(tmp_dir, "result.m8")
             
-            # 写入查询序列
+            # Write query sequence
             with open(query_path, "w") as f:
                 f.write(f">query\n{target_sequence}\n")
             
-            # 检测可用的GPU
+            # Detect available GPUs
             try:
                 nvidia_smi = "nvidia-smi --query-gpu=gpu_bus_id --format=csv,noheader"
                 result = subprocess.run(
@@ -369,12 +371,13 @@ class MMseqs2(msa_tool.MsaTool):
                 logging.warning("Failed to get GPU information")
                 return self._cpu_search(query_path, result_m8, tmp_dir, target_sequence)
 
-            # 如果使用GPU，确保有GPU索引
+            # If using GPU, ensure GPU index exists
             gpu_db = self.gpu_db
+            logging.info(f"[DEBUG] query: use_gpu={self.use_gpu}, gpu_db={gpu_db}")
             if gpu_db:
                 return self._gpu_search(query_path, result_m8, tmp_dir, target_sequence)
             else:
-                logging.warning("GPU database indexing failed, falling back to CPU search")
+                logging.warning(f"GPU database indexing failed (gpu_db={gpu_db}), falling back to CPU search")
             
-            # 如果GPU搜索失败或未启用，使用CPU搜索
+            # If GPU search failed or not enabled, use CPU search
             return self._cpu_search(query_path, result_m8, tmp_dir, target_sequence)
