@@ -13,7 +13,7 @@ from alphafold3.data.tools import msa_tool
 
 def run_with_logging(cmd: Sequence[str], env: dict | None = None) -> subprocess.CompletedProcess:
     """Runs command and logs stdout/stderr."""
-    logging.info('Running command: %s', ' '.join(cmd))
+    logging.info("Running command: %s", " ".join(cmd))
     try:
         result = subprocess.run(
             cmd, capture_output=True, check=True, text=True,
@@ -88,11 +88,11 @@ class MMseqs2(msa_tool.MsaTool):
             logging.info(f"Creating base MMseqs2 database at {self.base_db}")
             cmd = [
                 self.binary_path,
-                'createdb',
+                "createdb",
                 self.database_path,
                 self.base_db,
-                '--dbtype', '1',
-                '--compressed', '0'
+                "--dbtype", "1",
+                "--compressed", "0"
             ]
             try:
                 run_with_logging(cmd)
@@ -123,7 +123,7 @@ class MMseqs2(msa_tool.MsaTool):
                 
                 cmd = [
                     self.binary_path,
-                    'makepaddedseqdb',
+                    "makepaddedseqdb",
                     self.base_db,
                     self.gpu_db
                 ]
@@ -137,14 +137,14 @@ class MMseqs2(msa_tool.MsaTool):
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     cmd = [
                         self.binary_path,
-                        'createindex',
+                        "createindex",
                         self.gpu_db,
                         tmp_dir,
-                        '--remove-tmp-files', '1',
-                        '--threads', str(self.n_cpu),
-                        '--comp-bias-corr', '0',
-                        '--search-type', '1',
-                        '--mask', '0'
+                        "--remove-tmp-files", "1",
+                        "--threads", str(self.n_cpu),
+                        "--comp-bias-corr", "0",
+                        "--search-type", "1",
+                        "--mask", "0"
                     ]
                     try:
                         run_with_logging(cmd)
@@ -181,10 +181,9 @@ class MMseqs2(msa_tool.MsaTool):
         
         if self.gpu_devices:
             env["CUDA_VISIBLE_DEVICES"] = ",".join(self.gpu_devices)
-            logging.info(f"[DEBUG] Setting CUDA_VISIBLE_DEVICES={env['CUDA_VISIBLE_DEVICES']} for MMseqs2 GPU search")
+            logging.info(f"[DEBUG] Setting CUDA_VISIBLE_DEVICES={env[CUDA_VISIBLE_DEVICES]} for MMseqs2 GPU search")
         
         try:
-            # Step 1: GPU search (fast prefilter)
             logging.info("[DEBUG] Step 1: Running GPU search (prefilter)")
             cmd = [
                 self.binary_path,
@@ -205,7 +204,6 @@ class MMseqs2(msa_tool.MsaTool):
             ]
             run_with_logging(cmd, env=env)
             
-            # Step 2: Realign hits against base_db (non-padded) for proper A3M
             logging.info("[DEBUG] Step 2: Realigning against base_db for A3M generation")
             realign_db = os.path.join(tmp_dir, "realign")
             cmd = [
@@ -222,7 +220,6 @@ class MMseqs2(msa_tool.MsaTool):
             ]
             run_with_logging(cmd)
             
-            # Step 3: Convert to M8 for debugging (optional)
             cmd = [
                 self.binary_path,
                 "convertalis",
@@ -234,7 +231,6 @@ class MMseqs2(msa_tool.MsaTool):
             ]
             run_with_logging(cmd)
             
-            # Step 4: Generate A3M using realigned results against base_db
             return self._process_search_results(
                 result_db=realign_db,
                 target_sequence=target_sequence,
@@ -350,15 +346,8 @@ class MMseqs2(msa_tool.MsaTool):
         )
 
     def query(self, target_sequence: str) -> msa_tool.MsaToolResult:
-        """Search sequence database using MMseqs2.
-
-        Args:
-            target_sequence: Target sequence.
-
-        Returns:
-            MsaToolResult object containing alignment results.
-        """
-        logging.info('Query sequence: %s', target_sequence[:50] + '...' if len(target_sequence) > 50 else target_sequence)
+        """Search sequence database using MMseqs2."""
+        logging.info("Query sequence: %s", target_sequence[:50] + "..." if len(target_sequence) > 50 else target_sequence)
         
         with tempfile.TemporaryDirectory() as tmp_dir:
             query_path = os.path.join(tmp_dir, "query.fasta")
@@ -367,7 +356,6 @@ class MMseqs2(msa_tool.MsaTool):
             with open(query_path, "w") as f:
                 f.write(f">query\n{target_sequence}\n")
             
-            # Check for GPU availability
             try:
                 nvidia_smi = "nvidia-smi --query-gpu=gpu_bus_id --format=csv,noheader"
                 result = subprocess.run(
@@ -376,8 +364,8 @@ class MMseqs2(msa_tool.MsaTool):
                     check=True,
                     text=True
                 )
-                gpu_ids = result.stdout.strip().split('\\n')
-                if not gpu_ids or gpu_ids == ['''']:
+                gpu_ids = result.stdout.strip().split("\n")
+                if not gpu_ids or gpu_ids == [""]:
                     logging.warning("No GPU devices found")
                     return self._cpu_search(query_path, result_m8, tmp_dir, target_sequence)
                 logging.info(f"Found {len(gpu_ids)} GPU devices")
@@ -388,7 +376,6 @@ class MMseqs2(msa_tool.MsaTool):
             gpu_db = self.gpu_db
             logging.info(f"[DEBUG] query: use_gpu={self.use_gpu}, gpu_db={gpu_db}")
             
-            # Use hybrid GPU search if GPU database is available
             if gpu_db:
                 logging.info("[DEBUG] Using hybrid GPU search (GPU prefilter + CPU realign)")
                 return self._gpu_search(query_path, result_m8, tmp_dir, target_sequence)
