@@ -181,7 +181,7 @@ class MMseqs2(msa_tool.MsaTool):
         
         if self.gpu_devices:
             env["CUDA_VISIBLE_DEVICES"] = ",".join(self.gpu_devices)
-            logging.info(f"[DEBUG] Setting CUDA_VISIBLE_DEVICES={env[CUDA_VISIBLE_DEVICES]} for MMseqs2 GPU search")
+            logging.info(f"[DEBUG] Setting CUDA_VISIBLE_DEVICES={env['CUDA_VISIBLE_DEVICES']} for MMseqs2 GPU search")
         
         try:
             logging.info("[DEBUG] Step 1: Running GPU search (prefilter)")
